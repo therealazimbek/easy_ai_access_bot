@@ -6,6 +6,9 @@ from dotenv import load_dotenv
 from openai import *
 from telegram import *
 from telegram.ext import *
+from telegram.constants import *
+from pydub import AudioSegment
+from send_action_decorator import send_action
 
 # Load environment variables from .env file
 load_dotenv()
@@ -48,17 +51,19 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     await update.message.reply_text("Type text for interaction with gpt bot (new features are coming soon)!")
 
 
+@send_action(ChatAction.TYPING)
 async def generate_gpt_response(update: Update, context: CallbackContext) -> None:
     user_input = update.message.text
 
     response = client.chat.completions.create(
-        model="gpt-3.5-turbo", messages=[{"role": "user", "content": user_input}]
+        model="gpt-4-1106-preview", messages=[{"role": "user", "content": user_input}]
     )
 
     generated_text = response.choices[0].message.content
     await update.message.reply_text(generated_text)
 
 
+@send_action(ChatAction.UPLOAD_PHOTO)
 async def image_command(update: Update, context: CallbackContext) -> None:
     user_input = update.message.text
 
@@ -73,18 +78,44 @@ async def image_command(update: Update, context: CallbackContext) -> None:
     await update.message.reply_photo(response.data[0].url)
 
 
+@send_action(ChatAction.UPLOAD_VOICE)
 async def tts_command(update: Update, context: CallbackContext) -> None:
-    user_input = update.message.text
+    user_input = update.message.text.replace("/tts", "")
 
     speech_file_path = Path(__file__).parent / "speech.mp3"
     response = client.audio.speech.create(
         model="tts-1",
         voice="alloy",
-        input="Today is a wonderful day to build something people love!"
+        input=user_input
     )
     response.stream_to_file(speech_file_path)
 
     await update.message.reply_voice(speech_file_path)
+
+
+@send_action(ChatAction.TYPING)
+async def transcribe_command(update: Update, context: CallbackContext) -> None:
+    user_input = update.message.voice
+    filename = update.message.effective_attachment.file_unique_id
+    filename_mp3 = f'{filename}.mp3'
+    media_file = await context.bot.get_file(update.message.effective_attachment.file_id)
+    await media_file.download_to_drive(filename)
+    audio_track = AudioSegment.from_file(filename)
+    audio_track.export(filename_mp3, format="mp3")
+
+    audio_file = open(filename_mp3, "rb")
+    transcript = client.audio.transcriptions.create(
+        model="whisper-1",
+        file=audio_file
+    )
+
+    generated_text = transcript.text
+    await update.message.reply_text(generated_text)
+
+    if os.path.exists(filename_mp3):
+        os.remove(filename_mp3)
+    if os.path.exists(filename):
+        os.remove(filename)
 
 
 def main() -> None:
@@ -96,9 +127,13 @@ def main() -> None:
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("help", help_command))
     application.add_handler(CommandHandler("image", image_command))
+    application.add_handler(CommandHandler("tts", tts_command))
+    application.add_handler(CommandHandler("stt", transcribe_command))
 
     # on non command i.e. message - pass text to gpt model for interaction
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, generate_gpt_response))
+    application.add_handler(MessageHandler(filters.VOICE, transcribe_command))
+    # application.add_handler(MessageHandler(filters.AUDIO, transcribe_command))
 
     # Run the bot until the user presses Ctrl-C
     application.run_polling(allowed_updates=Update.ALL_TYPES)
