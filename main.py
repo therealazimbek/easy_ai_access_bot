@@ -8,6 +8,7 @@ from telegram import *
 from telegram.ext import *
 from telegram.constants import *
 from pydub import AudioSegment
+from google.cloud import vision_v1p3beta1 as vision
 from send_action_decorator import send_action
 
 # Load environment variables from .env file
@@ -15,12 +16,14 @@ load_dotenv()
 
 # Set up OpenAI API key
 openai_api_key = os.getenv("OPENAI_API_KEY")
+vision_api_key = os.getenv("VISION_API_KEY")
 
 # Set up Telegram bot token
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 
 # Set up OpenAI API Client
 client = OpenAI(api_key=openai_api_key)
+vision_client = vision.ImageAnnotatorClient()
 
 # Enable logging
 logging.basicConfig(
@@ -94,6 +97,33 @@ async def tts_command(update: Update, context: CallbackContext) -> None:
 
 
 @send_action(ChatAction.TYPING)
+async def image_to_text(update: Update, context: CallbackContext) -> None:
+    input_image_id = update.message.photo[-1].file_id
+    image_name = f"{input_image_id}.jpeg"
+    input_image = await context.bot.get_file(input_image_id)
+    await input_image.download_to_drive(image_name)
+
+    with open(image_name, "rb") as image_file:
+        content = image_file.read()
+
+    image = vision.Image(content=content)
+
+    response = vision_client.text_detection(image=image)
+    texts = response.text_annotations
+
+    if response.error.message:
+        raise Exception(
+            "{}\nFor more info on error messages, check: "
+            "https://cloud.google.com/apis/design/errors".format(response.error.message)
+        )
+
+    await update.message.reply_text(texts[0].description)
+
+    if os.path.exists(image_name):
+        os.remove(image_name)
+
+
+@send_action(ChatAction.TYPING)
 async def transcribe_command(update: Update, context: CallbackContext) -> None:
     user_input = update.message.voice
     filename = update.message.effective_attachment.file_unique_id
@@ -111,6 +141,7 @@ async def transcribe_command(update: Update, context: CallbackContext) -> None:
 
     generated_text = transcript.text
     await update.message.reply_text(generated_text)
+    audio_file.close()
 
     if os.path.exists(filename_mp3):
         os.remove(filename_mp3)
@@ -133,6 +164,7 @@ def main() -> None:
     # on non command i.e. message - pass text to gpt model for interaction
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, generate_gpt_response))
     application.add_handler(MessageHandler(filters.VOICE, transcribe_command))
+    application.add_handler(MessageHandler(filters.PHOTO, image_to_text))
     # application.add_handler(MessageHandler(filters.AUDIO, transcribe_command))
 
     # Run the bot until the user presses Ctrl-C
