@@ -135,7 +135,7 @@ class TelegramBot:
 
         audio_file = open(filename_mp3, "rb")
         generated_text = await self.openai_client.transcribe_audio(audio_file)
-        await update.message.reply_text(generated_text)
+        await update.message.reply_text("Transcirbed text: " + generated_text)
         self.repository.update_request_count(update.effective_user.id, "audio-to-text")
         audio_file.close()
 
