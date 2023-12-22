@@ -14,4 +14,7 @@ class VisionClient:
         if response.error.message:
             return "Something went wrong. We are working on it!"
 
-        return texts[0].description
+        if texts:
+            return texts[0].description
+        else:
+            return "No text detected in given image."

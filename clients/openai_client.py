@@ -1,7 +1,7 @@
 import datetime
 
 from pathlib import Path
-from openai import *
+from openai import OpenAI
 
 
 class OpenAIClient:
@@ -10,7 +10,8 @@ class OpenAIClient:
 
     async def generate_response(self, user_input: str) -> str:
         response = self.client.chat.completions.create(
-            model="gpt-4-1106-preview", messages=[{"role": "user", "content": user_input}]
+            model="gpt-4-1106-preview",
+            messages=[{"role": "user", "content": user_input}],
         )
 
         generated_text = response.choices[0].message.content
@@ -30,9 +31,7 @@ class OpenAIClient:
     async def generate_speech(self, user_input) -> Path:
         speech_file_path = Path(__file__).parent / f"speech-{datetime.time}.mp3"
         response = self.client.audio.speech.create(
-            model="tts-1",
-            voice="alloy",
-            input=user_input
+            model="tts-1", voice="alloy", input=user_input
         )
         response.stream_to_file(speech_file_path)
 
@@ -40,8 +39,7 @@ class OpenAIClient:
 
     async def transcribe_audio(self, audio_file) -> str:
         transcript = self.client.audio.transcriptions.create(
-            model="whisper-1",
-            file=audio_file
+            model="whisper-1", file=audio_file
         )
 
         generated_text = transcript.text

@@ -1,7 +1,7 @@
 import nltk
 from nltk.tokenize import word_tokenize
 
-nltk.download('punkt')
+nltk.download("punkt")
 
 
 def validate_user_input(user_input, max_tokens=4096) -> bool:

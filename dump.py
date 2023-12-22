@@ -4,23 +4,26 @@ from sqlalchemy.orm import sessionmaker
 
 Base = declarative_base()
 
+
 class User(Base):
-    __tablename__ = 'users'
+    __tablename__ = "users"
 
     user_id = Column(Integer, primary_key=True)
     username = Column(String)
     first_name = Column(String)
     last_name = Column(String)
 
-class Request(Base):
-    __tablename__ = 'requests'
 
-    user_id = Column(Integer, ForeignKey('users.user_id'), primary_key=True)
+class Request(Base):
+    __tablename__ = "requests"
+
+    user_id = Column(Integer, ForeignKey("users.user_id"), primary_key=True)
     service_name = Column(String, primary_key=True)
     request_count = Column(Integer)
 
+
 # Enable echo for more information
-engine = create_engine('sqlite:///bot_database.db', echo=True)
+engine = create_engine("sqlite:///bot_database.db", echo=True)
 
 try:
     # Create tables
@@ -36,13 +39,20 @@ session = Session()
 
 # Function to insert user information
 def insert_user(user_id, username, first_name, last_name):
-    user = User(user_id=user_id, username=username, first_name=first_name, last_name=last_name)
+    user = User(
+        user_id=user_id, username=username, first_name=first_name, last_name=last_name
+    )
     session.merge(user)
     session.commit()
 
+
 # Function to update request counts
 def update_request_count(user_id, service_name):
-    request = session.query(Request).filter_by(user_id=user_id, service_name=service_name).first()
+    request = (
+        session.query(Request)
+        .filter_by(user_id=user_id, service_name=service_name)
+        .first()
+    )
     if request:
         request.request_count += 1
     else:
@@ -50,7 +60,8 @@ def update_request_count(user_id, service_name):
         session.merge(request)
     session.commit()
 
+
 # Example usage:
-insert_user(123, 'user123', 'John', 'Doe')
-update_request_count(123, 'openai')
-update_request_count(123, 'google_vision')
+insert_user(123, "user123", "John", "Doe")
+update_request_count(123, "openai")
+update_request_count(123, "google_vision")

@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 def main():
     openai_client = OpenAIClient(openai_api_key)
     vision_client = VisionClient()
-    telegram_config = {'token': TELEGRAM_BOT_TOKEN}
+    telegram_config = {"token": TELEGRAM_BOT_TOKEN}
     telegram_bot = TelegramBot(openai_client, vision_client, config=telegram_config)
     telegram_bot.run()
 
