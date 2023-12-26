@@ -1,3 +1,4 @@
+import logging
 from telegram import BotCommand, Update, ReplyKeyboardMarkup
 from telegram.ext import (
     CallbackContext,
@@ -14,6 +15,13 @@ from pydub import AudioSegment
 from clients.vision_client import VisionClient
 from clients.openai_client import OpenAIClient
 from repositories.user_repository import UserRepository
+
+# Set up logging
+logging.basicConfig(
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
+)
+
+logger = logging.getLogger(__name__)
 
 
 class TelegramBot:
@@ -85,6 +93,7 @@ class TelegramBot:
             await update.message.reply_text(
                 "Please wait, your request is processing, for large responses it can take a while!"
             )
+            logger.info(f"User {update.effective_user.id} input sent to gpt model...")
             generated_text = await self.openai_client.generate_response(user_input)
             await update.message.reply_text(generated_text)
             self.repository.update_request_count(update.effective_user.id, "gpt")
@@ -121,6 +130,7 @@ class TelegramBot:
             await update.message.reply_text(
                 "Please wait, your request is processing, for large responses and images it can take a while!"
             )
+            logger.info(f"User {update.effective_user.id} input sent to dalle model...")
             response = await self.openai_client.generate_image(user_input)
             await update.message.reply_photo(response)
             self.repository.update_request_count(
@@ -139,6 +149,9 @@ class TelegramBot:
         if validate_user_input(user_input):
             await update.message.reply_text(
                 "Please wait, your request is processing, for large responses it can take a while!"
+            )
+            logger.info(
+                f"User {update.effective_user.id} input sent to text-to-speech model..."
             )
             response = await self.openai_client.generate_speech(user_input)
             await update.message.reply_voice(response)
@@ -175,6 +188,7 @@ class TelegramBot:
         await update.message.reply_text(
             "Please wait, your request is processing, for large responses it can take a while!"
         )
+        logger.info(f"User {update.effective_user.id} input sent to google vision...")
         response = await self.vision_client.image_to_text_client(content)
         await update.message.reply_text(response)
         self.repository.update_request_count(update.effective_user.id, "image-to-text")
@@ -198,6 +212,9 @@ class TelegramBot:
         audio_file = open(filename_mp3, "rb")
         await update.message.reply_text(
             "Please wait, your request is processing, for large responses it can take a while!"
+        )
+        logger.info(
+            f"User {update.effective_user.id} input sent to transcribe model..."
         )
         generated_text = await self.openai_client.transcribe_audio(audio_file)
         await update.message.reply_text("Transcirbed text: " + generated_text)
