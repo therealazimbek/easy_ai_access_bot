@@ -14,22 +14,22 @@ from utils.token_counter import validate_user_input
 from pydub import AudioSegment
 from clients.vision_client import VisionClient
 from clients.openai_client import OpenAIClient
+from clients.gemini_client import GeminiClient
 from repositories.user_repository import UserRepository
 
-# Set up logging
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
 )
-
 logger = logging.getLogger(__name__)
 
 
 class TelegramBot:
     def __init__(
-        self, openai_client: OpenAIClient, vision_client: VisionClient, config: dict
+        self, openai_client: OpenAIClient, vision_client: VisionClient, gemini_client: GeminiClient, config: dict
     ):
         self.openai_client = openai_client
         self.vision_client = vision_client
+        self.gemini_client = gemini_client
         self.repository = UserRepository()
         self.config = config
         self.commands = [
@@ -73,9 +73,10 @@ class TelegramBot:
         message = """
         Welcome. This message will help you to use this bot
         \n- GPT-4 Turbo: send message to this bot without commands
+        \n- Gemini Pro: use /gemini <input> command to use recent language model from Google
         \n- Image generation: use /image command with desired input
         \n- Text-To-Speech: use /tts command along with a message
-        \n- Image-To-Text: send images, documenst with image types without commands
+        \n- Image-To-Text: send images, document with image types without commands
         \n- Audio transcribing: send voice message, audio or documents with audio types without commands
 
         \nThanks for using this bot!\nEasyAIAccess Bot by @therealazimbek
@@ -93,10 +94,32 @@ class TelegramBot:
             await update.message.reply_text(
                 "Please wait, your request is processing, for large responses it can take a while!"
             )
-            logger.info(f"User {update.effective_user.id} input sent to gpt model...")
+            logger.info(f"User {update.effective_user.id}: input sent to gpt model...")
             generated_text = await self.openai_client.generate_response(user_input)
             await update.message.reply_text(generated_text)
+            logger.info(f"User {update.effective_user.id}: response sent back...")
             self.repository.update_request_count(update.effective_user.id, "gpt")
+        else:
+            await update.message.reply_text(
+                "Too many characters. Please try again with less characters."
+            )
+
+    async def generate_gemini_response(
+        self, update: Update, context: CallbackContext
+    ) -> None:
+        await self.add_user_to_db(update.effective_user)
+
+        user_input = update.message.text.strip()
+
+        if validate_user_input(user_input):
+            await update.message.reply_text(
+                "Please wait, your request is processing, for large responses it can take a while!"
+            )
+            logger.info(f"User {update.effective_user.id}: input sent to gemini model...")
+            generated_text = await self.gemini_client.generate_response(user_input)
+            await update.message.reply_text(generated_text)
+            logger.info(f"User {update.effective_user.id}: response sent back...")
+            self.repository.update_request_count(update.effective_user.id, "gemini")
         else:
             await update.message.reply_text(
                 "Too many characters. Please try again with less characters."
@@ -130,9 +153,10 @@ class TelegramBot:
             await update.message.reply_text(
                 "Please wait, your request is processing, for large responses and images it can take a while!"
             )
-            logger.info(f"User {update.effective_user.id} input sent to dalle model...")
+            logger.info(f"User {update.effective_user.id}: input sent to dalle model...")
             response = await self.openai_client.generate_image(user_input)
             await update.message.reply_photo(response)
+            logger.info(f"User {update.effective_user.id}: response sent back...")
             self.repository.update_request_count(
                 update.effective_user.id, "image-generation"
             )
@@ -151,10 +175,11 @@ class TelegramBot:
                 "Please wait, your request is processing, for large responses it can take a while!"
             )
             logger.info(
-                f"User {update.effective_user.id} input sent to text-to-speech model..."
+                f"User {update.effective_user.id}: input sent to text-to-speech model..."
             )
             response = await self.openai_client.generate_speech(user_input)
             await update.message.reply_voice(response)
+            logger.info(f"User {update.effective_user.id}: response sent back...")
             self.repository.update_request_count(
                 update.effective_user.id, "text-to-speech"
             )
@@ -188,9 +213,10 @@ class TelegramBot:
         await update.message.reply_text(
             "Please wait, your request is processing, for large responses it can take a while!"
         )
-        logger.info(f"User {update.effective_user.id} input sent to google vision...")
+        logger.info(f"User {update.effective_user.id}: input sent to google vision...")
         response = await self.vision_client.image_to_text_client(content)
         await update.message.reply_text(response)
+        logger.info(f"User {update.effective_user.id}: response sent back...")
         self.repository.update_request_count(update.effective_user.id, "image-to-text")
 
         delete_file_if_exists(image_name)
@@ -214,10 +240,11 @@ class TelegramBot:
             "Please wait, your request is processing, for large responses it can take a while!"
         )
         logger.info(
-            f"User {update.effective_user.id} input sent to transcribe model..."
+            f"User {update.effective_user.id}: input sent to transcribe model..."
         )
         generated_text = await self.openai_client.transcribe_audio(audio_file)
-        await update.message.reply_text("Transcirbed text: " + generated_text)
+        await update.message.reply_text("Transcribed text: " + generated_text)
+        logger.info(f"User {update.effective_user.id}: response sent back...")
         self.repository.update_request_count(update.effective_user.id, "audio-to-text")
         audio_file.close()
 
@@ -225,7 +252,6 @@ class TelegramBot:
         delete_file_if_exists(filename)
 
     async def post_init(self, application: Application) -> None:
-        # await application.bot.set_my_commands(self.group_commands, scope=BotCommandScopeAllGroupChats())
         await application.bot.set_my_commands(self.commands)
 
     def run(self):
@@ -236,15 +262,14 @@ class TelegramBot:
             .build()
         )
 
-        # on different commands - answer in Telegram
         application.add_handler(CommandHandler("start", self.start))
         application.add_handler(CommandHandler("stats", self.stats_command))
         application.add_handler(CommandHandler("help", self.help_command))
         application.add_handler(CommandHandler("image", self.image_command))
         application.add_handler(CommandHandler("tts", self.tts_command))
         application.add_handler(CommandHandler("stt", self.transcribe_command))
+        application.add_handler(CommandHandler("gemini", self.generate_gemini_response))
 
-        # on non command i.e. message - pass text to gpt model for interaction
         application.add_handler(
             MessageHandler(filters.TEXT & ~filters.COMMAND, self.generate_gpt_response)
         )
@@ -261,5 +286,4 @@ class TelegramBot:
             MessageHandler(filters.COMMAND, self.unrecognized_command)
         )
 
-        # Run the bot until the user presses Ctrl-C
         application.run_polling(allowed_updates=Update.ALL_TYPES)
