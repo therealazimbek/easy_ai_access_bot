@@ -6,3 +6,5 @@ bot_database.db
 bot_database.sqlite
 ./bot_database.db
 ./bot_database.sqlite
+/bot_database.sqlite
+/bot_database.db
