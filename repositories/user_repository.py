@@ -37,6 +37,23 @@ class UserRepository:
             self.session.merge(request)
         self.session.commit()
 
+    def set_user_state(self, user_id, state):
+        request = (
+            self.session.query(User)
+            .filter_by(user_id=user_id).first()
+        )
+        if request:
+            request.state = state
+            self.session.commit()
+
+    def get_user_state(self, user_id):
+        request = (
+            self.session.query(User)
+            .filter_by(user_id=user_id).first()
+        )
+        if request:
+            return request.state
+
     def get_service_counts(self, user_id):
         result = (
             self.session.query(Request.service_name, Request.request_count)

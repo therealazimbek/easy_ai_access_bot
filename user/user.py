@@ -11,6 +11,7 @@ class User(Base):
     username = Column(String)
     first_name = Column(String)
     last_name = Column(String)
+    state = Column(String)
 
 
 class Request(Base):

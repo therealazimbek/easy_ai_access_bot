@@ -1,21 +1,22 @@
 import logging
-from telegram import BotCommand, Update, ReplyKeyboardMarkup
+
+from pydub import AudioSegment
+from telegram import BotCommand, Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     CallbackContext,
     Application,
     MessageHandler,
     CommandHandler,
     filters,
-    ContextTypes,
+    ContextTypes, CallbackQueryHandler,
 )
 
+from clients.gemini_client import GeminiClient
+from clients.openai_client import OpenAIClient
+from clients.vision_client import VisionClient
+from repositories.user_repository import UserRepository
 from utils.delete_file import delete_file_if_exists
 from utils.token_counter import validate_user_input
-from pydub import AudioSegment
-from clients.vision_client import VisionClient
-from clients.openai_client import OpenAIClient
-from clients.gemini_client import GeminiClient
-from repositories.user_repository import UserRepository
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
@@ -25,7 +26,7 @@ logger = logging.getLogger(__name__)
 
 class TelegramBot:
     def __init__(
-        self, openai_client: OpenAIClient, vision_client: VisionClient, gemini_client: GeminiClient, config: dict
+            self, openai_client: OpenAIClient, vision_client: VisionClient, gemini_client: GeminiClient, config: dict
     ):
         self.openai_client = openai_client
         self.vision_client = vision_client
@@ -35,30 +36,27 @@ class TelegramBot:
         self.commands = [
             BotCommand(command="help", description="Show help message"),
             BotCommand(command="start", description="Show welcome message"),
-            BotCommand(
-                command="image",
-                description="Generate image from prompt (e.g. /image cat)",
-            ),
-            BotCommand(
-                command="tts",
-                description="Generate speech from text (e.g. /tts my house)",
-            ),
             BotCommand(command="stats", description="Show user statistics"),
+            BotCommand(command="state", description="Show currently chosen service"),
+            BotCommand(command="menu", description="Show services menu"),
         ]
-        self.custom_keyboard = [["test"]]
-        self.reply_markup = ReplyKeyboardMarkup(self.custom_keyboard)
+        self.keyboard = [[InlineKeyboardButton("ChatGPT4-Turbo", callback_data='gpt'),
+                          InlineKeyboardButton("Text to Speech", callback_data='tts')],
+                         [InlineKeyboardButton("Image to Text", callback_data='itt'),
+                          InlineKeyboardButton("Image generation", callback_data='dalle')],
+                         [InlineKeyboardButton("Audio transcribing", callback_data='att'),
+                          InlineKeyboardButton("Google Gemini", callback_data='gemini')]]
 
     async def start(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        bot_name = context.bot.name
         user = update.effective_user
 
         await self.add_user_to_db(user)
 
         await update.message.reply_text(
-            f"Hello {user.name}! I am your GPT-based Telegram bot. Send me a message, and I "
-            f"will generate "
-            f"a response for you. \nWith respect, {bot_name} team!"
+            f"Hello {user.name}! Welcome to EasyAIAccess Bot, where you can access AI services easily and quickly!"
         )
+
+        await self.show_menu(update, context)
 
     async def add_user_to_db(self, user):
         if not self.repository.user_exists(user.id):
@@ -67,24 +65,19 @@ class TelegramBot:
             )
 
     async def help_command(
-        self, update: Update, context: ContextTypes.DEFAULT_TYPE
+            self, update: Update, context: ContextTypes.DEFAULT_TYPE
     ) -> None:
         await self.add_user_to_db(update.effective_user)
-        message = """
-        Welcome. This message will help you to use this bot
-        \n- GPT-4 Turbo: send message to this bot without commands
-        \n- Gemini Pro: use /gemini <input> command to use recent language model from Google
-        \n- Image generation: use /image command with desired input
-        \n- Text-To-Speech: use /tts command along with a message
-        \n- Image-To-Text: send images, document with image types without commands
-        \n- Audio transcribing: send voice message, audio or documents with audio types without commands
-
-        \nThanks for using this bot!\nEasyAIAccess Bot by @therealazimbek
-        """
+        message = ("You confused and do not know how to use this bot? Please, use /menu command to get a list of "
+                   "available services and choose one of them. Then start entering inputs or sending documents, "
+                   "depending on chosen service. If you are confused in which service you are, just use /state "
+                   "command to get your current chosen service. Please, keep in mind that responses can take a while "
+                   "if they are big, be patient. You can also contact me through Telegram!\nThanks for using this "
+                   "bot! EasyAIAccess Bot by @therealazimbek")
         await update.message.reply_text(message)
 
     async def generate_gpt_response(
-        self, update: Update, context: CallbackContext
+            self, update: Update, context: CallbackContext
     ) -> None:
         await self.add_user_to_db(update.effective_user)
 
@@ -105,7 +98,7 @@ class TelegramBot:
             )
 
     async def generate_gemini_response(
-        self, update: Update, context: CallbackContext
+            self, update: Update, context: CallbackContext
     ) -> None:
         await self.add_user_to_db(update.effective_user)
 
@@ -137,7 +130,7 @@ class TelegramBot:
         await update.message.reply_text(result_string.strip())
 
     async def unrecognized_command(
-        self, update: Update, context: CallbackContext
+            self, update: Update, context: CallbackContext
     ) -> None:
         await self.add_user_to_db(update.effective_user)
         await update.message.reply_text(
@@ -196,7 +189,7 @@ class TelegramBot:
         if update.message.photo:
             input_image_id = update.message.photo[-1].file_id
         elif update.message.document and update.message.document.mime_type.startswith(
-            "image"
+                "image"
         ):
             input_image_id = update.message.document.file_id
         else:
@@ -222,7 +215,7 @@ class TelegramBot:
         delete_file_if_exists(image_name)
 
     async def transcribe_command(
-        self, update: Update, context: CallbackContext
+            self, update: Update, context: CallbackContext
     ) -> None:
         await self.add_user_to_db(update.effective_user)
 
@@ -251,6 +244,108 @@ class TelegramBot:
         delete_file_if_exists(filename_mp3)
         delete_file_if_exists(filename)
 
+    async def show_menu(self, update: Update, context: CallbackContext) -> None:
+        reply_markup = InlineKeyboardMarkup(self.keyboard)
+
+        await update.message.reply_text('Please choose a service:', reply_markup=reply_markup)
+
+    async def update_handler(self, update: Update, context: CallbackContext) -> None:
+        state = self.repository.get_user_state(update.effective_user.id)
+
+        if state == "gpt":
+            if update.message.text:
+                await self.generate_gpt_response(update, context)
+            else:
+                await update.message.reply_text("For this service, please, send only text messages!")
+        elif state == "tts":
+            if update.message.text:
+                await self.tts_command(update, context)
+            else:
+                await update.message.reply_text("For this service, please, send only text messages!")
+        elif state == "itt":
+            if update.message.photo or (update.message.document and update.message.document.mime_type.startswith(
+                    "image"
+            )):
+                await self.image_to_text(update, context)
+            else:
+                await update.message.reply_text("For this service, please, send only images or documents with image "
+                                                "types!")
+        elif state == "dalle":
+            if update.message.text:
+                await self.image_command(update, context)
+            else:
+                await update.message.reply_text("For this service, please, send only text messages!")
+        elif state == "att":
+            if (update.message.audio or update.message.voice or
+                    (update.message.document and update.message.document.mime_type.startswith(
+                        "audio"
+                    ))):
+                await self.transcribe_command(update, context)
+            else:
+                await update.message.reply_text("For this service, please, send only voice messages or audios "
+                                                "or documents with audio types!")
+        elif state == "gemini":
+            if update.message.text:
+                await self.generate_gemini_response(update, context)
+            else:
+                await update.message.reply_text("For this service, please, send only text messages!")
+        else:
+            await update.message.reply_text("Please choose service first using /menu command!")
+
+    async def keyboard_handler(self, update: Update, context: CallbackContext) -> None:
+        query = update.callback_query
+        user_id = query.from_user.id
+        choice = query.data
+
+        if choice == "gpt":
+            await context.bot.send_message(update.effective_chat.id,
+                                           "You chose ChatGPT4-Turbo, latest OpenAI Language Model. Start typing "
+                                           "requests!")
+            self.repository.set_user_state(user_id, 'gpt')
+        elif choice == "tts":
+            await context.bot.send_message(update.effective_chat.id,
+                                           "You chose Text to Speech from OpenAI. Start typing requests!")
+            self.repository.set_user_state(user_id, 'tts')
+        elif choice == "itt":
+            await context.bot.send_message(update.effective_chat.id,
+                                           "You chose Image to Text from Google Vision. Start sending images!")
+            self.repository.set_user_state(user_id, 'itt')
+        elif choice == "dalle":
+            await context.bot.send_message(update.effective_chat.id,
+                                           "You chose Image generation from OpenAI DALLE-3. Start typing "
+                                           "requests!")
+            self.repository.set_user_state(user_id, 'dalle')
+        elif choice == "att":
+            await context.bot.send_message(update.effective_chat.id,
+                                           "You chose Audio transcribing from OpenAI. Start sending "
+                                           "voice messages or audio files!")
+            self.repository.set_user_state(user_id, 'att')
+        elif choice == "gemini":
+            await context.bot.send_message(update.effective_chat.id,
+                                           "You chose Gemini Language model, just like GPT but from Google. "
+                                           "Start typing requests!")
+            self.repository.set_user_state(user_id, 'gemini')
+
+    async def show_state_command(self, update: Update, context: CallbackContext) -> None:
+        state = self.repository.get_user_state(update.effective_user.id)
+        modified_state = ''
+
+        if state == "gpt":
+            modified_state = 'ChatGPT4-Turbo'
+        elif state == "tts":
+            modified_state = 'Text to Speech'
+        elif state == "itt":
+            modified_state = 'Image to Text'
+        elif state == "dalle":
+            modified_state = 'Image generation'
+        elif state == "att":
+            modified_state = 'Audio transcribing'
+        elif state == "gemini":
+            modified_state = 'Google Gemini'
+
+        await update.message.reply_text("Your current state: " +
+                                        modified_state)
+
     async def post_init(self, application: Application) -> None:
         await application.bot.set_my_commands(self.commands)
 
@@ -265,25 +360,15 @@ class TelegramBot:
         application.add_handler(CommandHandler("start", self.start))
         application.add_handler(CommandHandler("stats", self.stats_command))
         application.add_handler(CommandHandler("help", self.help_command))
-        application.add_handler(CommandHandler("image", self.image_command))
-        application.add_handler(CommandHandler("tts", self.tts_command))
-        application.add_handler(CommandHandler("stt", self.transcribe_command))
-        application.add_handler(CommandHandler("gemini", self.generate_gemini_response))
-
-        application.add_handler(
-            MessageHandler(filters.TEXT & ~filters.COMMAND, self.generate_gpt_response)
-        )
-        application.add_handler(
-            MessageHandler(
-                filters.AUDIO | filters.VOICE | filters.Document.AUDIO,
-                self.transcribe_command,
-            )
-        )
-        application.add_handler(
-            MessageHandler(filters.PHOTO | filters.ATTACHMENT, self.image_to_text)
-        )
+        application.add_handler(CommandHandler("state", self.show_state_command))
+        application.add_handler(CommandHandler("menu", self.show_menu))
         application.add_handler(
             MessageHandler(filters.COMMAND, self.unrecognized_command)
         )
+        application.add_handler(MessageHandler((filters.TEXT | filters.AUDIO |
+                                                filters.VOICE | filters.Document.AUDIO |
+                                                filters.PHOTO | filters.ATTACHMENT) & ~filters.COMMAND,
+                                               self.update_handler))
+        application.add_handler(CallbackQueryHandler(self.keyboard_handler))
 
         application.run_polling(allowed_updates=Update.ALL_TYPES)
